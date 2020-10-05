@@ -5,6 +5,7 @@ import csv
 from collections import Counter
 from math import sqrt
 import operator
+import statistics
 
 
 class DataProcessor(object):
@@ -64,6 +65,19 @@ class DataProcessor(object):
         diff = max_value - min_value
         return [(i - min_value) / diff for i in x_list]
 
+    def standardize(self, x_list, attr_name):
+        x_list = [float(i) for i in x_list]
+        if self.test_mode:
+            mean = self.kernel['standardize'][attr_name]['mean']
+            variance = self.kernel['standardize'][attr_name]['variance']
+        else:
+            mean = statistics.mean(x_list)
+            variance = statistics.variance(x_list)
+            if 'standardize' not in self.kernel:
+                self.kernel['standardize'] = {}
+            self.kernel['standardize'][attr_name] = {'mean': mean, 'variance': variance}
+        return [(i - mean) / variance for i in x_list]
+
     def preprocess_data(self):
 
         data_dict = self.data
@@ -118,6 +132,9 @@ class DataProcessor(object):
             data = [prob_dict[i] for i in data]
             data_dict[attr] = data
 
+        # for attr in self.columns[:-1]:
+        #     data_dict[attr] = self.standardize(data_dict[attr], attr)
+
         data_y = data_dict['income']
         length = len(data_y)
         data_x = [[] for i in data_y]
@@ -136,25 +153,31 @@ class KNN(object):
         self.Y = Y
 
     @staticmethod
-    def calculate_distance(a, b):
-        total = 0
-        for i in range(len(a)):
-            total += (a[i] - b[i]) ** 2
-        return sqrt(total)
+    def calculate_distance(a, b, distance='euclidean'):
+        if distance == 'euclidean':
+            total = 0
+            for i in range(len(a)):
+                total += (a[i] - b[i]) ** 2
+            return sqrt(total)
+        elif distance == "manhattan":
+            total = 0
+            for i in range(len(a)):
+                total += abs(a[i] - b[i])
+            return total
 
-    def predict(self, data):
+    def predict(self, data, distance='euclidean'):
         result_list = []
         for index, value in enumerate(data):
             if index % 100 == 0:
                 print(index)
             dist_list = []
             for xi in self.X:
-                dist_list.append(self.calculate_distance(value, xi))
+                dist_list.append(self.calculate_distance(value, xi, distance))
             indexed = list(enumerate(dist_list))
-            top_k = sorted(indexed, key=operator.itemgetter(1))[-self.k:]
+            top_k = sorted(indexed, key=operator.itemgetter(1))[:self.k]
             top_k_index = list(reversed([i for i, v in top_k]))
-            prediction = [self.Y[i] for i in top_k_index]
-            prediction = Counter(prediction).most_common(1)[0][0]
+            prediction_list = [self.Y[i] for i in top_k_index]
+            prediction = Counter(prediction_list).most_common(1)[0][0]
             result_list.append(prediction)
         return result_list
 
@@ -182,6 +205,7 @@ class KNN(object):
 def main():
     train_data_object = DataProcessor('./data/adult.data')
     train_x, train_y = train_data_object.preprocess_data()
+    print(Counter(train_y).most_common())
     # print(len(list(train_data.values())[0]))
 
     test_data_object = DataProcessor('./data/adult.test', test_mode=True, kernel=train_data_object.kernel)
@@ -189,9 +213,10 @@ def main():
     # print(len(list(test_data.values())[0]))
 
     print('{} train samples.\n{} test samples.'.format(len(train_x), len(test_y)))
-    test_index = None
-    clf = KNN(20, train_x[:test_index], train_y[:test_index])
-    prediction = clf.predict(test_x[:test_index])
+    train_index = 3000
+    test_index = 1000
+    clf = KNN(5, train_x[:train_index], train_y[:train_index])
+    prediction = clf.predict(test_x[:test_index], 'manhattan')
     print(prediction)
     print(test_y[:test_index])
     print(clf.evaluate(prediction, test_y[:test_index]))
