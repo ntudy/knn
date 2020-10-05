@@ -6,6 +6,8 @@ from collections import Counter
 from math import sqrt
 import operator
 import statistics
+import time
+import os
 
 
 class DataProcessor(object):
@@ -165,11 +167,11 @@ class KNN(object):
                 total += abs(a[i] - b[i])
             return total
 
-    def predict(self, data, distance='euclidean'):
-        result_list = []
+    def calculate(self, data, distance='euclidean'):
+        result_list = [0] * len(data)
         for index, value in enumerate(data):
             if index % 100 == 0:
-                print(index)
+                print("Process", os.getpid(), index)
             dist_list = []
             for xi in self.X:
                 dist_list.append(self.calculate_distance(value, xi, distance))
@@ -178,8 +180,22 @@ class KNN(object):
             top_k_index = list(reversed([i for i, v in top_k]))
             prediction_list = [self.Y[i] for i in top_k_index]
             prediction = Counter(prediction_list).most_common(1)[0][0]
-            result_list.append(prediction)
+            result_list[index] = prediction
         return result_list
+
+    def predict(self, data, distance='euclidean', thread=1):
+        def chunk(l, n):
+            return [l[i:i + n] for i in range(0, len(l), n)]
+
+        if thread > 1:
+            import multiprocessing
+            data = chunk(data, int(len(data)/thread))
+            pool = multiprocessing.Pool(thread)
+            result = pool.map(self.calculate, data)
+            pool.close()
+            return result[0]
+        else:
+            return self.calculate(data, distance)
 
     @staticmethod
     def evaluate(pred, real):
@@ -205,21 +221,21 @@ class KNN(object):
 def main():
     train_data_object = DataProcessor('./data/adult.data')
     train_x, train_y = train_data_object.preprocess_data()
-    print(Counter(train_y).most_common())
-    # print(len(list(train_data.values())[0]))
 
     test_data_object = DataProcessor('./data/adult.test', test_mode=True, kernel=train_data_object.kernel)
     test_x, test_y = test_data_object.preprocess_data()
-    # print(len(list(test_data.values())[0]))
 
     print('{} train samples.\n{} test samples.'.format(len(train_x), len(test_y)))
-    train_index = 3000
-    test_index = 1000
-    clf = KNN(5, train_x[:train_index], train_y[:train_index])
-    prediction = clf.predict(test_x[:test_index], 'manhattan')
-    print(prediction)
-    print(test_y[:test_index])
-    print(clf.evaluate(prediction, test_y[:test_index]))
+    train_index = 6000
+    test_index = 2000
+    clf = KNN(10, train_x[:train_index], train_y[:train_index])
+    start = time.time()
+    prediction = clf.predict(test_x[:test_index], distance='euclidean', thread=1)
+    end = time.time()
+    print("running time: {:.2f}s".format(end - start))
+    print("prediction", prediction)
+    print("test y", test_y[:test_index])
+    print("evaluation", clf.evaluate(prediction, test_y[:test_index]))
 
 
 if __name__ == '__main__':
