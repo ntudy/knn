@@ -3,11 +3,15 @@
 
 import csv
 from collections import Counter
-from math import sqrt
+from math import sqrt, ceil
 import operator
 import statistics
 import time
 import os
+
+
+def chunk(l, n):
+    return [l[i:i + n] for i in range(0, len(l), n)]
 
 
 class DataProcessor(object):
@@ -146,6 +150,12 @@ class DataProcessor(object):
 
         return data_x, data_y
 
+    def k_fold(self, k, data_x, data_y):
+        step_size = ceil(len(data_x) / k)
+        data_folds = chunk(data_x, step_size)
+        label_folds = chunk(data_y, step_size)
+        return data_folds, label_folds
+
 
 class KNN(object):
 
@@ -170,8 +180,8 @@ class KNN(object):
     def calculate(self, data, distance='euclidean'):
         result_list = [0] * len(data)
         for index, value in enumerate(data):
-            if index % 100 == 0:
-                print("Process", os.getpid(), index)
+            # if index % 100 == 0:
+            #     print("Process", os.getpid(), index)
             dist_list = []
             for xi in self.X:
                 dist_list.append(self.calculate_distance(value, xi, distance))
@@ -184,12 +194,10 @@ class KNN(object):
         return result_list
 
     def predict(self, data, distance='euclidean', thread=1):
-        def chunk(l, n):
-            return [l[i:i + n] for i in range(0, len(l), n)]
 
         if thread > 1:
             import multiprocessing
-            data = chunk(data, int(len(data)/thread))
+            data = chunk(data, int(len(data) / thread))
             pool = multiprocessing.Pool(thread)
             result = pool.map(self.calculate, data)
             pool.close()
@@ -209,7 +217,6 @@ class KNN(object):
                 tn += 1
             if pred[i] == 0 and real[i] == 1:
                 fn += 1
-        print(tp, tn, fp, fn)
         accuracy = (tp + tn) / (tp + fp + tn + fn)
         precision = tp / (tp + fp) if tp != 0 else 0.0
         recall = tp / (tp + fn) if tp != 0 else 0.0
@@ -222,20 +229,68 @@ def main():
     train_data_object = DataProcessor('./data/adult.data')
     train_x, train_y = train_data_object.preprocess_data()
 
+    folds = 4
+    train_x_folds, train_y_folds = train_data_object.k_fold(folds, train_x, train_y)
+    running_time_list = []
+    result_list = []
+    model_list = []
+    for i in range(folds):
+        print('-' * 100)
+        print('Working on fold {}'.format(i))
+        x_train = [row for index, fold in enumerate(train_x_folds) if index != i for row in fold]
+        y_train = [row for index, fold in enumerate(train_y_folds) if index != i for row in fold]
+        x_test = [row for row in train_x_folds[i]]
+        y_test = [row for row in train_y_folds[i]]
+
+        model = KNN(10, x_train, y_train)
+        start = time.time()
+        prediction = model.predict(x_test, distance='euclidean', thread=8)
+        end = time.time()
+        running_time = end - start
+        result = model.evaluate(prediction, y_test)
+        print("running time: {:.2f}s".format(running_time))
+        print("evaluation", result)
+        running_time_list.append(running_time)
+        result_list.append(result)
+        model_list.append(model)
+
+    accuracy_list = [i[0] for i in result_list]
+    precision_list = [i[1] for i in result_list]
+    recall_list = [i[2] for i in result_list]
+    f1_list = [i[3] for i in result_list]
+    print('=' * 100)
+    print("average running time: {:.2f}s".format(sum(running_time_list) / len(running_time_list)))
+    print("average accuracy: {}".format(sum(accuracy_list) / len(accuracy_list)))
+    print("average precision: {}".format(sum(precision_list) / len(precision_list)))
+    print("average recall: {}".format(sum(recall_list) / len(recall_list)))
+    print("average f1: {}".format(sum(f1_list) / len(f1_list)))
+
+    best_model_index = accuracy_list.index(max(accuracy_list))
+    best_model = model_list[best_model_index]
+    print('best model is from fold {}'.format(best_model_index))
+
     test_data_object = DataProcessor('./data/adult.test', test_mode=True, kernel=train_data_object.kernel)
     test_x, test_y = test_data_object.preprocess_data()
-
-    print('{} train samples.\n{} test samples.'.format(len(train_x), len(test_y)))
-    train_index = 6000
-    test_index = 2000
-    clf = KNN(10, train_x[:train_index], train_y[:train_index])
     start = time.time()
-    prediction = clf.predict(test_x[:test_index], distance='euclidean', thread=1)
+    prediction = best_model.predict(test_x, distance='euclidean', thread=8)
     end = time.time()
-    print("running time: {:.2f}s".format(end - start))
-    print("prediction", prediction)
-    print("test y", test_y[:test_index])
-    print("evaluation", clf.evaluate(prediction, test_y[:test_index]))
+    print('test running time: {:.2f}s'.format(end - start))
+    print('evaluation result:', model.evaluate(prediction, test_y))
+
+    # test_data_object = DataProcessor('./data/adult.test', test_mode=True, kernel=train_data_object.kernel)
+    # test_x, test_y = test_data_object.preprocess_data()
+    #
+    # print('{} train samples.\n{} test samples.'.format(len(train_x), len(test_y)))
+    # train_index = None
+    # test_index = None
+    # clf = KNN(10, train_x[:train_index], train_y[:train_index])
+    # start = time.time()
+    # prediction = clf.predict(test_x[:test_index], distance='euclidean', thread=8)
+    # end = time.time()
+    # print("running time: {:.2f}s".format(end - start))
+    # print("prediction", prediction)
+    # print("test y", test_y[:test_index])
+    # print("evaluation", clf.evaluate(prediction, test_y[:test_index]))
 
 
 if __name__ == '__main__':
