@@ -201,12 +201,15 @@ class KNN(object):
             pool = multiprocessing.Pool(thread)
             result = pool.map(self.calculate, data)
             pool.close()
-            return result[0]
+            result = [j for i in result for j in i]
+            return result
         else:
             return self.calculate(data, distance)
 
     @staticmethod
     def evaluate(pred, real):
+
+        assert len(pred) == len(real)
         tp, tn, fp, fn = 0, 0, 0, 0
         for i in range(len(pred)):
             if pred[i] == 1 and real[i] == 1:
@@ -226,11 +229,13 @@ class KNN(object):
 
 
 def main():
+    folds = 4
+    thread_num = 8
+
     train_data_object = DataProcessor('./data/adult.data')
     train_x, train_y = train_data_object.preprocess_data()
 
-    folds = 4
-    train_x_folds, train_y_folds = train_data_object.k_fold(folds, train_x, train_y)
+    train_x_folds, train_y_folds = train_data_object.k_fold(folds, train_x[:1000], train_y[:1000])
     running_time_list = []
     result_list = []
     model_list = []
@@ -244,7 +249,7 @@ def main():
 
         model = KNN(10, x_train, y_train)
         start = time.time()
-        prediction = model.predict(x_test, distance='euclidean', thread=8)
+        prediction = model.predict(x_test, distance='euclidean', thread=thread_num)
         end = time.time()
         running_time = end - start
         result = model.evaluate(prediction, y_test)
@@ -272,7 +277,7 @@ def main():
     test_data_object = DataProcessor('./data/adult.test', test_mode=True, kernel=train_data_object.kernel)
     test_x, test_y = test_data_object.preprocess_data()
     start = time.time()
-    prediction = best_model.predict(test_x, distance='euclidean', thread=8)
+    prediction = best_model.predict(test_x, distance='euclidean', thread=thread_num)
     end = time.time()
     print('test running time: {:.2f}s'.format(end - start))
     print('evaluation result:', model.evaluate(prediction, test_y))
